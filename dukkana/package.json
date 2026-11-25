@@ -1,0 +1,21 @@
+{
+  "name": "dukkana",
+  "version": "1.0.0",
+  "description": "دكّانة: متجر أونلاين لأي محل في دقيقتين، والطلبات توصل على واتساب",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "seed-demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^2.0.2"
+  }
+}
