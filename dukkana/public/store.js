@@ -198,5 +198,38 @@
       });
   });
 
+  // Product search: forgiving Arabic matching (أ/إ/آ = ا، ة = ه، ى = ي، no diacritics).
+  function normalize(text) {
+    return String(text || '')
+      .toLowerCase()
+      .replace(/[ً-ٰٟـ]/g, '')
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  var search = document.getElementById('product-search');
+  if (search) {
+    var noResults = document.getElementById('no-results');
+    var catNav = document.querySelector('.cat-nav');
+    search.addEventListener('input', function () {
+      var q = normalize(search.value);
+      var anyVisible = false;
+      document.querySelectorAll('.cat-section').forEach(function (section) {
+        var visibleInSection = 0;
+        section.querySelectorAll('.product').forEach(function (el) {
+          var match = !q || normalize(el.getAttribute('data-name')).indexOf(q) !== -1;
+          el.hidden = !match;
+          if (match) visibleInSection++;
+        });
+        section.hidden = visibleInSection === 0;
+        if (visibleInSection) anyVisible = true;
+      });
+      noResults.hidden = anyVisible;
+      if (catNav) catNav.hidden = Boolean(q);
+    });
+  }
+
   render();
 })();

@@ -20,6 +20,11 @@ export function registerDashboardRoutes(app, ctx) {
   app.use('/dashboard', requireMerchant);
 
   const msgOf = (req) => (typeof req.query.msg === 'string' ? req.query.msg : '');
+  const categoriesOf = (req) =>
+    db.all(
+      "SELECT category FROM products WHERE merchant_id = ? AND category != '' GROUP BY category ORDER BY MIN(id)",
+      req.merchant.id,
+    ).map((r) => r.category);
   const ownProduct = (req) =>
     db.get('SELECT * FROM products WHERE id = ? AND merchant_id = ?', Number(req.params.id), req.merchant.id) || null;
 
@@ -59,7 +64,7 @@ export function registerDashboardRoutes(app, ctx) {
 
   app.get('/dashboard/products/new', (req, res) => {
     if (!services.canAddProduct(req.merchant)) return renderProducts(req, res, 403, [limitError()]);
-    res.send(productFormPage({ csrf: req.csrfToken }));
+    res.send(productFormPage({ csrf: req.csrfToken, categories: categoriesOf(req) }));
   });
 
   /** Validate product fields. Returns { values, errors, data }. */
@@ -68,6 +73,7 @@ export function registerDashboardRoutes(app, ctx) {
       name: cleanText(req.body.name, 80),
       price: cleanText(req.body.price, 20),
       description: cleanText(req.body.description, 500, { multiline: true }),
+      category: cleanText(req.body.category, 40),
     };
     const errors = [];
     if (!values.name) errors.push('اكتب اسم المنتج.');
@@ -75,7 +81,7 @@ export function registerDashboardRoutes(app, ctx) {
     if (price === null) errors.push('السعر لازم يكون رقم، زي 120 أو 99.50.');
     else if (price <= 0) errors.push('السعر لازم يكون أكبر من صفر.');
     if (req.uploadError) errors.push(req.uploadError);
-    return { values, errors, data: { name: values.name, price, description: values.description } };
+    return { values, errors, data: { name: values.name, price, description: values.description, category: values.category } };
   };
 
   app.post('/dashboard/products/new', imageUpload, (req, res) => {
@@ -83,11 +89,11 @@ export function registerDashboardRoutes(app, ctx) {
     if (!services.canAddProduct(req.merchant)) errors.unshift(limitError());
     if (errors.length) {
       if (req.file) removeUpload(req.file.filename);
-      return res.status(400).send(productFormPage({ csrf: req.csrfToken, values, errors }));
+      return res.status(400).send(productFormPage({ csrf: req.csrfToken, values, errors, categories: categoriesOf(req) }));
     }
     db.run(
-      'INSERT INTO products (merchant_id, name, price, description, image, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      req.merchant.id, data.name, data.price, data.description, req.file ? req.file.filename : null, now(),
+      'INSERT INTO products (merchant_id, name, price, description, category, image, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      req.merchant.id, data.name, data.price, data.description, data.category, req.file ? req.file.filename : null, now(),
     );
     res.redirect(303, '/dashboard/products?msg=added');
   });
@@ -95,7 +101,7 @@ export function registerDashboardRoutes(app, ctx) {
   app.get('/dashboard/products/:id(\\d+)/edit', (req, res, next) => {
     const product = ownProduct(req);
     if (!product) return next();
-    res.send(productFormPage({ csrf: req.csrfToken, product }));
+    res.send(productFormPage({ csrf: req.csrfToken, product, categories: categoriesOf(req) }));
   });
 
   app.post('/dashboard/products/:id(\\d+)/edit', imageUpload, (req, res, next) => {
@@ -107,14 +113,14 @@ export function registerDashboardRoutes(app, ctx) {
     const { values, errors, data } = readProduct(req);
     if (errors.length) {
       if (req.file) removeUpload(req.file.filename);
-      return res.status(400).send(productFormPage({ csrf: req.csrfToken, product, values, errors }));
+      return res.status(400).send(productFormPage({ csrf: req.csrfToken, product, values, errors, categories: categoriesOf(req) }));
     }
     let image = product.image;
     if (req.file) image = req.file.filename;
     else if (req.body.remove_image === '1') image = null;
     db.run(
-      'UPDATE products SET name = ?, price = ?, description = ?, image = ? WHERE id = ? AND merchant_id = ?',
-      data.name, data.price, data.description, image, product.id, req.merchant.id,
+      'UPDATE products SET name = ?, price = ?, description = ?, category = ?, image = ? WHERE id = ? AND merchant_id = ?',
+      data.name, data.price, data.description, data.category, image, product.id, req.merchant.id,
     );
     if (product.image && product.image !== image) removeUpload(product.image);
     res.redirect(303, '/dashboard/products?msg=updated');
@@ -195,6 +201,25 @@ export function registerDashboardRoutes(app, ctx) {
       throw err;
     }
     res.redirect(303, '/dashboard/settings?msg=saved');
+  });
+
+  app.post('/dashboard/settings/logo', imageUpload, (req, res) => {
+    const m = req.merchant;
+    if (req.uploadError) {
+      return res.status(400).send(settingsPage({ csrf: req.csrfToken, merchant: m, errors: [req.uploadError] }));
+    }
+    let logo = m.logo;
+    if (req.file) logo = req.file.filename;
+    else if (req.body.remove_logo === '1') logo = null;
+    db.run('UPDATE merchants SET logo = ? WHERE id = ?', logo, m.id);
+    if (m.logo && m.logo !== logo) removeUpload(m.logo);
+    res.redirect(303, '/dashboard/settings?msg=saved');
+  });
+
+  app.post('/dashboard/store-status', (req, res) => {
+    const open = req.body.open === '1' ? 1 : 0;
+    db.run('UPDATE merchants SET is_open = ? WHERE id = ?', open, req.merchant.id);
+    res.redirect(303, `/dashboard?msg=${open ? 'opened' : 'closed'}`);
   });
 
   app.post('/dashboard/password', ah(async (req, res) => {

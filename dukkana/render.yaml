@@ -1,0 +1,31 @@
+# Render Blueprint: one-click deploy of Dukkana.
+# Put the contents of the dukkana/ folder at the root of its own GitHub repo,
+# then in Render choose: New → Blueprint → pick the repo.
+services:
+  - type: web
+    name: dukkana
+    runtime: docker
+    plan: starter            # a persistent disk needs a paid instance
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    disk:
+      name: dukkana-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ADMIN_PASSWORD
+        generateValue: true  # shown in Render → Environment
+      - key: BASE_URL
+        sync: false          # e.g. https://dukkana.onrender.com or your own domain
+      - key: VODAFONE_CASH_NUMBER
+        sync: false
+      - key: INSTAPAY_ADDRESS
+        sync: false
+      - key: SUPPORT_WHATSAPP
+        sync: false

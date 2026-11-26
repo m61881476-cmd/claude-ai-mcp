@@ -150,7 +150,7 @@ export function loginPage({ csrf, values = {}, errors = [], config }) {
   });
 }
 
-function productCard(p) {
+function productCard(p, open) {
   const initial = [...p.name][0] || '•';
   return html`<article class="product${p.available ? '' : ' is-out'}" data-id="${p.id}" data-name="${p.name}" data-price="${p.price}">
   ${p.image
@@ -161,16 +161,54 @@ function productCard(p) {
     ${p.description ? html`<p class="muted small">${p.description}</p>` : ''}
     <div class="product-foot">
       <span class="price-tag">${formatMoney(p.price)}</span>
-      ${p.available
+      ${p.available && open
         ? html`<div class="qty" data-qty-for="${p.id}">
             <button type="button" class="qty-btn" data-action="dec" aria-label="شيل واحد">−</button>
             <span class="qty-num">0</span>
             <button type="button" class="qty-btn" data-action="inc" aria-label="زوّد واحد">+</button>
           </div>`
-        : html`<span class="badge">مش متاح دلوقتي</span>`}
+        : p.available ? '' : html`<span class="badge">مش متاح دلوقتي</span>`}
     </div>
   </div>
 </article>`;
+}
+
+/**
+ * Group products by category, keeping the merchant's order (first product of
+ * each category decides its position). Uncategorized products come last.
+ */
+export function groupByCategory(products) {
+  const groups = new Map();
+  for (const p of products) {
+    const key = p.category || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  const named = [...groups.entries()].filter(([k]) => k !== '').map(([name, items]) => ({ name, items }));
+  const rest = groups.get('') || [];
+  if (named.length === 0) return [{ name: '', items: rest }];
+  if (rest.length) named.push({ name: 'منتجات تانية', items: rest });
+  return named;
+}
+
+const SEARCH_THRESHOLD = 8;
+
+function productsSection(products, open) {
+  if (products.length === 0) return html`<p class="empty">المتجر لسه مافيهوش منتجات. ارجع تاني قريب!</p>`;
+  const groups = groupByCategory(products);
+  const hasCategories = groups.length > 1 || groups[0].name !== '';
+  return html`
+  ${products.length >= SEARCH_THRESHOLD
+    ? html`<div class="store-search"><input type="search" id="product-search" placeholder="🔍 دوّر على منتج..." aria-label="دوّر على منتج"></div>`
+    : ''}
+  ${hasCategories
+    ? html`<nav class="cat-nav" aria-label="الأقسام">${groups.map((g, i) => html`<a href="#cat-${i}">${g.name}</a>`)}</nav>`
+    : ''}
+  ${groups.map((g, i) => html`<section class="cat-section" id="cat-${i}">
+    ${hasCategories ? html`<h2 class="cat-title">${g.name}</h2>` : ''}
+    <div class="products">${g.items.map((p) => productCard(p, open))}</div>
+  </section>`)}
+  <p class="empty" id="no-results" hidden>مفيش منتجات بالاسم ده.</p>`;
 }
 
 export function storePage({ merchant, products, showBadge, storeUrl, ogImage }) {
@@ -185,18 +223,19 @@ export function storePage({ merchant, products, showBadge, storeUrl, ogImage }) 
       url: storeUrl,
       image: ogImage,
     },
-    scripts: ['/store.js?v=1'],
+    scripts: ['/store.js?v=2'],
     body: html`<main class="store" data-slug="${merchant.slug}" data-delivery="${merchant.delivery_fee}">
   <header class="store-head"><div class="wrap">
-    <div class="avatar" aria-hidden="true">${initial}</div>
+    ${merchant.logo
+      ? html`<img class="avatar avatar-img" src="/uploads/${merchant.logo}" alt="">`
+      : html`<div class="avatar" aria-hidden="true">${initial}</div>`}
     <h1>${merchant.store_name}</h1>
     ${merchant.description ? html`<p class="store-desc">${merchant.description}</p>` : ''}
     ${merchant.delivery_fee > 0 ? html`<p class="small">🚚 التوصيل: ${formatMoney(merchant.delivery_fee)}</p>` : ''}
   </div></header>
+  ${merchant.is_open ? '' : html`<div class="closed-banner">🔒 المحل مقفول دلوقتي ومش بياخد طلبات. تقدر تتفرج على المنتجات وترجع تطلب بعدين.</div>`}
   <div class="wrap">
-    ${products.length === 0
-      ? html`<p class="empty">المتجر لسه مافيهوش منتجات. ارجع تاني قريب!</p>`
-      : html`<div class="products">${products.map(productCard)}</div>`}
+    ${productsSection(products, Boolean(merchant.is_open))}
   </div>
 
   <div class="cart-bar" id="cart-bar" hidden>

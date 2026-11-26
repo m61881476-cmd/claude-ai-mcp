@@ -45,6 +45,9 @@ ${tempPassword
   <div class="stat"><b>${stats.orders30}</b><span>طلبات في كل المتاجر (30 يوم)</span></div>
 </section>
 
+<p><a class="btn btn-small btn-ghost" href="/admin/backup">⬇️ نزّل نسخة احتياطية من البيانات</a>
+<span class="muted small">(السيرفر بيعمل نسخة لوحده كل يوم كمان)</span></p>
+
 <section class="card">
   <h2>مدفوعات مستنية مراجعة (${pending.length})</h2>
   <p class="muted small">قبل ما تقبل: اتأكد إن التحويل وصلك فعلاً بنفس المبلغ ورقم العملية.</p>

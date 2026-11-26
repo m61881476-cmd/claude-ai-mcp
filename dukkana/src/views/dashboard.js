@@ -10,6 +10,8 @@ export const FLASH = {
   saved: 'الإعدادات اتحفظت.',
   payment: 'طلب الدفع وصلنا. هنراجعه ونفعّل الباقة في أقرب وقت (عادةً في نفس اليوم).',
   status: 'حالة الطلب اتغيرت.',
+  opened: 'المتجر اتفتح، والزباين يقدروا يطلبوا دلوقتي.',
+  closed: 'المتجر اتقفل مؤقتاً. الزباين يقدروا يتفرجوا بس ومش هيقدروا يطلبوا.',
 };
 
 const ORDER_STATUS = { new: 'جديد', done: 'اتسلّم', cancelled: 'اتلغى' };
@@ -58,6 +60,14 @@ export function homePage({ csrf, merchant, msg, storeUrl, pro, daysLeft, product
     body: html`
 ${notice(FLASH[msg])}
 ${planBanner({ pro, daysLeft, productCount, config })}
+<section class="card store-toggle${merchant.is_open ? '' : ' is-closed'}">
+  <div><b>${merchant.is_open ? '🟢 المتجر مفتوح وبياخد طلبات' : '🔴 المتجر مقفول ومش بياخد طلبات'}</b>
+  <div class="muted small">${merchant.is_open ? 'لو أجازة أو خلصت الشغل النهارده، اقفله مؤقتاً.' : 'افتحه تاني لما تكون جاهز تستقبل طلبات.'}</div></div>
+  <form method="post" action="/dashboard/store-status" class="inline">${csrfField(csrf)}
+    <input type="hidden" name="open" value="${merchant.is_open ? '0' : '1'}">
+    <button class="btn btn-small ${merchant.is_open ? 'btn-ghost' : ''}">${merchant.is_open ? 'اقفل المتجر مؤقتاً' : 'افتح المتجر'}</button>
+  </form>
+</section>
 <section class="card">
   <h2>لينك متجرك</h2>
   <div class="copy-row"><input id="store-link" readonly value="${storeUrl}" dir="ltr"><button type="button" class="btn btn-small" data-copy="#store-link">انسخ</button></div>
@@ -141,7 +151,7 @@ ${products.length === 0
   ? html`<p class="muted">لسه مفيش منتجات.</p>`
   : html`<div class="plist">${products.map((p, i) => html`<div class="pitem${p.available ? '' : ' is-out'}${!pro && i >= config.freeProductLimit ? ' is-hidden' : ''}">
       ${p.image ? html`<img src="/uploads/${p.image}" alt="" loading="lazy">` : html`<div class="thumb-ph">${[...p.name][0] || '•'}</div>`}
-      <div class="pitem-body"><b>${p.name}</b><span>${formatMoney(p.price)}${p.available ? '' : ' · مش متاح'}</span></div>
+      <div class="pitem-body"><b>${p.name}</b><span>${formatMoney(p.price)}${p.category ? ` · ${p.category}` : ''}${p.available ? '' : ' · مش متاح'}</span></div>
       <div class="pitem-actions">
         <a class="btn btn-small btn-ghost" href="/dashboard/products/${p.id}/edit">تعديل</a>
         <form method="post" action="/dashboard/products/${p.id}/toggle" class="inline">${csrfField(csrf)}<button class="btn btn-small btn-ghost">${p.available ? 'خلّيه مش متاح' : 'خلّيه متاح'}</button></form>
@@ -151,12 +161,13 @@ ${products.length === 0
   });
 }
 
-export function productFormPage({ csrf, product = null, values = {}, errors = [] }) {
+export function productFormPage({ csrf, product = null, values = {}, errors = [], categories = [] }) {
   const editing = Boolean(product);
   const v = {
     name: values.name ?? product?.name ?? '',
     price: values.price ?? (product ? priceInputValue(product.price) : ''),
     description: values.description ?? product?.description ?? '',
+    category: values.category ?? product?.category ?? '',
   };
   const action = editing ? `/dashboard/products/${product.id}/edit` : '/dashboard/products/new';
   return dashPage({
@@ -169,6 +180,9 @@ ${errorBox(errors)}
   ${csrfField(csrf)}
   <label class="field"><span>اسم المنتج</span><input name="name" required maxlength="80" value="${v.name}"></label>
   <label class="field"><span>السعر (بالجنيه)</span><input name="price" required inputmode="decimal" value="${v.price}" placeholder="مثلاً 120" dir="ltr"></label>
+  <label class="field"><span>القسم (اختياري)</span><input name="category" maxlength="40" value="${v.category}" list="category-list" placeholder="مثلاً: حلويات شرقي، مشروبات، عروض">
+    <small class="muted">المنتجات اللي ليها نفس القسم بتظهر مع بعض في المتجر.</small></label>
+  <datalist id="category-list">${categories.map((c) => html`<option value="${c}"></option>`)}</datalist>
   <label class="field"><span>وصف قصير (اختياري)</span><textarea name="description" maxlength="500" rows="3">${v.description}</textarea></label>
   ${editing && product.image ? html`<div class="field"><span>الصورة الحالية</span><img class="preview" src="/uploads/${product.image}" alt="">
     <label class="check"><input type="checkbox" name="remove_image" value="1"> امسح الصورة</label></div>` : ''}
@@ -209,6 +223,17 @@ ${errorBox(errors)}
     ${Object.entries(ACCENTS).map(([key, label]) => html`<label class="swatch accent-${key}"><input type="radio" name="accent" value="${key}" ${v.accent === key ? html`checked` : ''}><span>${label}</span></label>`)}
   </div></fieldset>
   <button class="btn btn-block" type="submit">احفظ</button>
+</form>
+<form method="post" action="/dashboard/settings/logo" enctype="multipart/form-data" class="card form">
+  ${csrfField(csrf)}
+  <h2>لوجو المحل</h2>
+  ${merchant.logo
+    ? html`<img class="logo-preview" src="/uploads/${merchant.logo}" alt="اللوجو الحالي">
+      <label class="check"><input type="checkbox" name="remove_logo" value="1"> امسح اللوجو</label>`
+    : html`<p class="muted small">من غير لوجو، المتجر بيعرض أول حرف من اسم المحل.</p>`}
+  <label class="field"><span>${merchant.logo ? 'غيّر اللوجو' : 'ارفع لوجو'}</span><input type="file" name="image" accept="image/jpeg,image/png,image/webp">
+    <small class="muted">صورة مربعة أحسن. JPG أو PNG أو WEBP، أقصى حجم 2 ميجا.</small></label>
+  <button class="btn btn-ghost" type="submit">احفظ اللوجو</button>
 </form>
 <form method="post" action="/dashboard/password" class="card form">
   ${csrfField(csrf)}

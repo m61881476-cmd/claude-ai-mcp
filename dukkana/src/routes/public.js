@@ -127,7 +127,7 @@ export function registerPublicRoutes(app, ctx) {
     if (!merchant) return storeNotFound(res);
     const products = services.visibleProducts(merchant);
     const base = ctx.baseUrl(req);
-    const withImage = products.find((p) => p.image);
+    const withImage = merchant.logo ? { image: merchant.logo } : products.find((p) => p.image);
     res.send(storePage({
       merchant,
       products,
@@ -143,6 +143,7 @@ export function registerPublicRoutes(app, ctx) {
 
     const merchant = services.merchantBySlug(normalizeSlug(req.params.slug));
     if (!merchant) return fail(404, 'المتجر مش موجود.');
+    if (!merchant.is_open) return fail(409, 'المحل مقفول دلوقتي ومش بياخد طلبات. جرّب تاني بعدين.');
 
     const b = req.body && typeof req.body === 'object' ? req.body : {};
     const name = cleanText(b.name, 60);

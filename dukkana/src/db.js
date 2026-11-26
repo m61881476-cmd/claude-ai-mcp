@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS referral_rewards (
 );
 `;
 
+// Columns added after the first release. Each is added only if missing, so
+// existing databases upgrade in place without losing data.
+const ADDED_COLUMNS = [
+  ['merchants', 'is_open', 'INTEGER NOT NULL DEFAULT 1'],
+  ['merchants', 'logo', 'TEXT'],
+  ['products', 'category', "TEXT NOT NULL DEFAULT ''"],
+];
+
+function migrate(raw) {
+  for (const [table, column, ddl] of ADDED_COLUMNS) {
+    const exists = raw.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    if (!exists) raw.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+
 /**
  * Open (and migrate) the SQLite database. Returns a tiny wrapper with
  * get / all / run / tx helpers and a prepared-statement cache.
@@ -80,6 +95,7 @@ export function openDb(file) {
   const raw = new DatabaseSync(file);
   raw.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   raw.exec(SCHEMA);
+  migrate(raw);
 
   const cache = new Map();
   const stmt = (sql) => {

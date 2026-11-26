@@ -19,7 +19,11 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 // Multipart (file upload) routes. Every other POST must be urlencoded/JSON so the
 // global CSRF check can see the token. Multipart routes verify CSRF after parsing.
-const MULTIPART_ROUTES = [/^\/dashboard\/products\/new$/, /^\/dashboard\/products\/\d+\/edit$/];
+const MULTIPART_ROUTES = [
+  /^\/dashboard\/products\/new$/,
+  /^\/dashboard\/products\/\d+\/edit$/,
+  /^\/dashboard\/settings\/logo$/,
+];
 const ORDER_ROUTE = /^\/s\/[^/]+\/order$/;
 
 /** Make sure the bytes really are the image type the browser claimed. */

@@ -1,5 +1,9 @@
 import { hashPassword, safeEqual, tempPassword } from '../security.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cleanText } from '../util.js';
+import { snapshot } from '../backup.js';
+import { newToken } from '../security.js';
 import { adminHomePage, adminLoginPage } from '../views/admin.js';
 
 const ADMIN_COOKIE_PATH = '/admin';
@@ -68,6 +72,20 @@ export function registerAdminRoutes(app, ctx) {
   };
 
   app.get('/admin', (req, res) => renderHome(req, res));
+
+  // One-click download of a full database backup.
+  app.get('/admin/backup', (req, res, next) => {
+    const tmp = path.join(config.dataDir, `backup-${newToken(8)}.db`);
+    try {
+      snapshot(db, tmp);
+    } catch (err) {
+      fs.rmSync(tmp, { force: true });
+      return next(err);
+    }
+    const day = new Date(now()).toISOString().slice(0, 10);
+    res.set('Cache-Control', 'no-store');
+    res.download(tmp, `dukkana-backup-${day}.db`, () => fs.rmSync(tmp, { force: true }));
+  });
 
   app.post('/admin/payments/:id(\\d+)/approve', (req, res) => {
     const ok = services.approvePayment(Number(req.params.id));

@@ -4,6 +4,7 @@ import { loadConfig } from './src/config.js';
 import { openDb } from './src/db.js';
 import { createApp } from './src/app.js';
 import { createServices } from './src/services.js';
+import { dailyBackup } from './src/backup.js';
 
 const config = loadConfig();
 fs.mkdirSync(config.dataDir, { recursive: true });
@@ -14,6 +15,17 @@ const app = createApp({ config, db });
 const services = createServices({ db, config, now: Date.now });
 services.purgeExpiredSessions();
 setInterval(() => services.purgeExpiredSessions(), 60 * 60 * 1000).unref();
+
+// Automatic daily database backup (DATA_DIR/backups, last 14 days kept).
+const runBackup = () => {
+  try {
+    dailyBackup(db, config.dataDir);
+  } catch (err) {
+    console.error('Backup failed:', err);
+  }
+};
+runBackup();
+setInterval(runBackup, 60 * 60 * 1000).unref();
 
 if (!config.adminPassword) console.warn('⚠️  ADMIN_PASSWORD is not set: the /admin panel is disabled.');
 if (!config.vodafoneCash && !config.instapay) console.warn('⚠️  No payment method set (VODAFONE_CASH_NUMBER / INSTAPAY_ADDRESS).');
