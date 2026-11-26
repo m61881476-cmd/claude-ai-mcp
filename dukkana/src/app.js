@@ -24,7 +24,7 @@ const MULTIPART_ROUTES = [
   /^\/dashboard\/products\/\d+\/edit$/,
   /^\/dashboard\/settings\/logo$/,
 ];
-const ORDER_ROUTE = /^\/s\/[^/]+\/order$/;
+const ORDER_ROUTE = /^\/s\/[^/]+\/(?:order|quote)$/;
 
 /** Make sure the bytes really are the image type the browser claimed. */
 function hasImageSignature(filePath, mimetype) {
@@ -179,6 +179,7 @@ export function createApp({ config, db, now = Date.now }) {
       loginIp: createRateLimiter({ windowMs: 15 * 60 * 1000, max: 100, now }),
       signup: createRateLimiter({ windowMs: 60 * 60 * 1000, max: config.signupsPerHourPerIp, now }),
       order: createRateLimiter({ windowMs: 10 * 60 * 1000, max: 20, now }),
+      quote: createRateLimiter({ windowMs: 10 * 60 * 1000, max: 60, now }),
       admin: createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10, now }),
       payment: createRateLimiter({ windowMs: 60 * 60 * 1000, max: 5, now }),
     },

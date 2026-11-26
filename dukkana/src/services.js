@@ -64,6 +64,14 @@ export function createServices({ db, config, now }) {
       return db.all('SELECT * FROM products WHERE merchant_id = ? ORDER BY id LIMIT ?', merchant.id, limit);
     },
 
+    hasActiveCoupons(merchantId) {
+      return Boolean(db.get('SELECT 1 FROM coupons WHERE merchant_id = ? AND active = 1', merchantId));
+    },
+
+    couponByCode(merchantId, code) {
+      return db.get('SELECT * FROM coupons WHERE merchant_id = ? AND code = ?', merchantId, code) || null;
+    },
+
     canAddProduct(merchant) {
       return services.isPro(merchant) || services.productCount(merchant.id) < config.freeProductLimit;
     },

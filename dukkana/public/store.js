@@ -7,6 +7,8 @@
 
   var slug = root.getAttribute('data-slug');
   var delivery = Number(root.getAttribute('data-delivery')) || 0;
+  var minOrder = Number(root.getAttribute('data-min-order')) || 0;
+  var applied = null; // { code, label, discount } from the server
   var storageKey = 'dukkana-cart:' + slug;
 
   var products = {};
@@ -79,6 +81,7 @@
     else cart[id] = Math.min(q, 99);
     save();
     render();
+    if (applied) requote();
   }
 
   root.addEventListener('click', function (e) {
@@ -120,10 +123,102 @@
       li.appendChild(price);
       linesEl.appendChild(li);
     });
-    var sub = subtotal();
-    document.getElementById('sum-subtotal').textContent = money(sub);
-    document.getElementById('sum-total').textContent = money(sub + delivery);
+    renderTotals();
   }
+
+  function fulfillment() {
+    var checked = form.querySelector('input[name=fulfillment]:checked');
+    return checked ? checked.value : 'delivery';
+  }
+
+  function renderTotals() {
+    var sub = subtotal();
+    var fee = fulfillment() === 'delivery' ? delivery : 0;
+    var discount = applied ? applied.discount : 0;
+    document.getElementById('sum-subtotal').textContent = money(sub);
+    document.getElementById('row-discount').hidden = !discount;
+    document.getElementById('sum-discount').textContent = '-' + money(discount);
+    document.getElementById('row-delivery').hidden = !fee;
+    document.getElementById('sum-total').textContent = money(sub - discount + fee);
+    var tooSmall = sub > 0 && sub < minOrder;
+    var note = document.getElementById('min-order-note');
+    note.hidden = !tooSmall;
+    if (tooSmall) note.textContent = 'أقل قيمة للطلب ' + money(minOrder) + '. ضيف بـ ' + money(minOrder - sub) + ' كمان.';
+    submitBtn.disabled = tooSmall;
+    var pickup = fulfillment() === 'pickup';
+    document.getElementById('address-field').hidden = pickup;
+  }
+
+  // ---- Coupons -------------------------------------------------------------
+  var couponInput = document.getElementById('coupon-input');
+  var couponStatus = document.getElementById('coupon-status');
+
+  function items() {
+    return Object.keys(cart).map(function (id) { return { id: Number(id), qty: cart[id] }; });
+  }
+
+  function quote(code) {
+    return fetch('/s/' + encodeURIComponent(slug) + '/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items(), coupon: code, fulfillment: fulfillment() }),
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        if (!res.ok) throw new Error(body.error || 'حصلت مشكلة، جرّب تاني.');
+        return body;
+      });
+    });
+  }
+
+  function showCoupon(ok, text) {
+    couponStatus.hidden = false;
+    couponStatus.className = 'small ' + (ok ? 'coupon-ok' : 'coupon-bad');
+    couponStatus.textContent = text;
+  }
+
+  function requote() {
+    if (!applied || Object.keys(cart).length === 0) return;
+    var code = applied.code;
+    quote(code).then(function (q) {
+      applied = { code: code, label: q.coupon.label, discount: q.discount };
+      showCoupon(true, '✓ ' + q.coupon.label);
+      renderTotals();
+    }, function (err) {
+      applied = null;
+      showCoupon(false, err.message);
+      renderTotals();
+    });
+  }
+
+  if (couponInput) {
+    document.getElementById('apply-coupon').addEventListener('click', function () {
+      var code = couponInput.value.trim();
+      if (!code) return;
+      quote(code).then(function (q) {
+        applied = { code: q.coupon.code, label: q.coupon.label, discount: q.discount };
+        showCoupon(true, '✓ ' + q.coupon.label + ' (وفّرت ' + money(q.discount) + ')');
+        renderTotals();
+      }, function (err) {
+        applied = null;
+        showCoupon(false, err.message);
+        renderTotals();
+      });
+    });
+    couponInput.addEventListener('input', function () {
+      if (applied && couponInput.value.trim().toUpperCase() !== applied.code) {
+        applied = null;
+        couponStatus.hidden = true;
+        renderTotals();
+      }
+    });
+  }
+
+  form.addEventListener('change', function (e) {
+    if (e.target.name === 'fulfillment') {
+      renderTotals();
+      if (applied) requote();
+    }
+  });
 
   // Remember the customer's details for next time (on their own device only).
   var profileKey = 'dukkana-customer';
@@ -157,11 +252,13 @@
       phone: form.elements.phone.value,
       address: form.elements.address.value,
       notes: form.elements.notes.value,
-      items: Object.keys(cart).map(function (id) { return { id: Number(id), qty: cart[id] }; }),
+      fulfillment: fulfillment(),
+      coupon: applied ? applied.code : '',
+      items: items(),
     };
     if (data.items.length === 0) return showError('السلة فاضية.');
     if (data.name.trim().length < 2) return showError('اكتب اسمك.');
-    if (data.address.trim().length < 5) return showError('اكتب العنوان بالتفصيل.');
+    if (data.fulfillment === 'delivery' && data.address.trim().length < 5) return showError('اكتب العنوان بالتفصيل.');
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'لحظة...';
@@ -183,6 +280,8 @@
           localStorage.setItem(profileKey, JSON.stringify({ name: data.name, phone: data.phone, address: data.address }));
         } catch (err) { /* ignore */ }
         cart = {};
+        applied = null;
+        if (couponInput) { couponInput.value = ''; couponStatus.hidden = true; }
         save();
         render();
         form.elements.notes.value = '';
@@ -195,6 +294,7 @@
       .then(function () {
         submitBtn.disabled = false;
         submitBtn.textContent = 'ابعت الطلب على واتساب';
+        renderTotals();
       });
   });
 

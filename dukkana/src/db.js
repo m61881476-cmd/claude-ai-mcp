@@ -65,6 +65,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS coupons (
+  id INTEGER PRIMARY KEY,
+  merchant_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  value INTEGER NOT NULL,
+  min_subtotal INTEGER NOT NULL DEFAULT 0,
+  max_uses INTEGER,
+  uses INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  UNIQUE (merchant_id, code)
+);
+
 CREATE TABLE IF NOT EXISTS referral_rewards (
   referred_id INTEGER PRIMARY KEY REFERENCES merchants(id) ON DELETE CASCADE,
   referrer_id INTEGER NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
@@ -78,6 +93,15 @@ const ADDED_COLUMNS = [
   ['merchants', 'is_open', 'INTEGER NOT NULL DEFAULT 1'],
   ['merchants', 'logo', 'TEXT'],
   ['products', 'category', "TEXT NOT NULL DEFAULT ''"],
+  ['products', 'compare_price', 'INTEGER'],
+  ['merchants', 'min_order', 'INTEGER NOT NULL DEFAULT 0'],
+  ['merchants', 'pickup_enabled', 'INTEGER NOT NULL DEFAULT 0'],
+  ['merchants', 'facebook', "TEXT NOT NULL DEFAULT ''"],
+  ['merchants', 'instagram', "TEXT NOT NULL DEFAULT ''"],
+  ['merchants', 'tiktok', "TEXT NOT NULL DEFAULT ''"],
+  ['orders', 'discount', 'INTEGER NOT NULL DEFAULT 0'],
+  ['orders', 'coupon_code', "TEXT NOT NULL DEFAULT ''"],
+  ['orders', 'fulfillment', "TEXT NOT NULL DEFAULT 'delivery'"],
 ];
 
 function migrate(raw) {

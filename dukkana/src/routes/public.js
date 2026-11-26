@@ -5,9 +5,10 @@ import {
 } from '../util.js';
 import { landingPage, loginPage, signupPage, storePage } from '../views/public.js';
 import { simplePage } from '../views/layout.js';
+import {
+  COUPON_RE, OrderError, couponLabel, normalizeCouponCode, priceOrder,
+} from '../pricing.js';
 
-const MAX_ORDER_LINES = 50;
-const MAX_QTY = 99;
 
 export function registerPublicRoutes(app, ctx) {
   const { db, config, now, services, ah, limiters, cookieOpts } = ctx;
@@ -134,77 +135,116 @@ export function registerPublicRoutes(app, ctx) {
       showBadge: !services.isPro(merchant),
       storeUrl: `${base}/s/${merchant.slug}`,
       ogImage: withImage ? `${base}/uploads/${withImage.image}` : null,
+      coupons: services.isPro(merchant) && services.hasActiveCoupons(merchant.id),
     }));
   });
 
-  app.post('/s/:slug/order', (req, res) => {
-    const fail = (status, error) => res.status(status).json({ error });
-    if (!limiters.order.hit(req.ip)) return fail(429, 'طلبات كتير في وقت قصير. استنى شوية وجرّب تاني.');
-
+  /** Shared by /quote and /order: find the store and price the cart. */
+  const loadCheckout = (req) => {
     const merchant = services.merchantBySlug(normalizeSlug(req.params.slug));
-    if (!merchant) return fail(404, 'المتجر مش موجود.');
-    if (!merchant.is_open) return fail(409, 'المحل مقفول دلوقتي ومش بياخد طلبات. جرّب تاني بعدين.');
-
+    if (!merchant) throw new OrderError(404, 'المتجر مش موجود.');
+    if (!merchant.is_open) throw new OrderError(409, 'المحل مقفول دلوقتي ومش بياخد طلبات. جرّب تاني بعدين.');
     const b = req.body && typeof req.body === 'object' ? req.body : {};
+    const code = normalizeCouponCode(cleanText(b.coupon, 40));
+    let coupon = null;
+    if (code) {
+      coupon = COUPON_RE.test(code) && services.isPro(merchant) ? services.couponByCode(merchant.id, code) : null;
+      if (!coupon) throw new OrderError(400, 'الكوبون ده مش موجود.');
+    }
+    const fulfillment = b.fulfillment === 'pickup' ? 'pickup' : 'delivery';
+    const priced = priceOrder({
+      merchant, products: services.visibleProducts(merchant), items: b.items, fulfillment, coupon, now: now(),
+    });
+    return { merchant, b, coupon, priced };
+  };
+
+  const sendError = (res, err) => {
+    if (err instanceof OrderError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  };
+
+  // Live price check (used when the customer applies a coupon).
+  app.post('/s/:slug/quote', (req, res) => {
+    if (!limiters.quote.hit(req.ip)) return res.status(429).json({ error: 'محاولات كتير. استنى شوية.' });
+    try {
+      const { coupon, priced } = loadCheckout(req);
+      res.json({
+        subtotal: priced.subtotal,
+        discount: priced.discount,
+        deliveryFee: priced.deliveryFee,
+        total: priced.total,
+        coupon: coupon ? { code: coupon.code, label: couponLabel(coupon) } : null,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  });
+
+  app.post('/s/:slug/order', (req, res) => {
+    if (!limiters.order.hit(req.ip)) return res.status(429).json({ error: 'طلبات كتير في وقت قصير. استنى شوية وجرّب تاني.' });
+    let checkout;
+    try {
+      checkout = loadCheckout(req);
+    } catch (err) {
+      return sendError(res, err);
+    }
+    const { merchant, b, coupon, priced } = checkout;
+    const fail = (status, error) => res.status(status).json({ error });
+
     const name = cleanText(b.name, 60);
     const phone = normalizePhone(b.phone);
     const address = cleanText(b.address, 300, { multiline: true });
     const notes = cleanText(b.notes, 500, { multiline: true });
     if (name.length < 2) return fail(400, 'اكتب اسمك.');
     if (!phone) return fail(400, 'اكتب رقم موبايل مصري صحيح زي 01012345678.');
-    if (address.length < 5) return fail(400, 'اكتب العنوان بالتفصيل.');
+    if (priced.fulfillment === 'delivery' && address.length < 5) return fail(400, 'اكتب العنوان بالتفصيل.');
 
-    if (!Array.isArray(b.items) || b.items.length === 0) return fail(400, 'السلة فاضية.');
-    if (b.items.length > MAX_ORDER_LINES) return fail(400, 'منتجات كتير زيادة في طلب واحد.');
-    const wanted = new Map();
-    for (const item of b.items) {
-      const id = Number(item?.id);
-      const qty = Number(item?.qty);
-      if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(qty) || qty < 1 || qty > MAX_QTY) {
-        return fail(400, 'فيه منتج في السلة بكمية مش صحيحة.');
-      }
-      wanted.set(id, (wanted.get(id) || 0) + qty);
+    let orderId;
+    try {
+      orderId = db.tx(() => {
+        if (coupon) {
+          // Atomic: never exceed max uses even with simultaneous orders.
+          const r = db.run(
+            'UPDATE coupons SET uses = uses + 1 WHERE id = ? AND active = 1 AND (max_uses IS NULL OR uses < max_uses)',
+            coupon.id,
+          );
+          if (r.changes === 0) throw new OrderError(409, 'الكوبون ده خلص.');
+        }
+        const r = db.run(
+          `INSERT INTO orders (merchant_id, customer_name, customer_phone, address, notes, items, subtotal, delivery_fee,
+             discount, coupon_code, fulfillment, total, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          merchant.id, name, phone, address, notes, JSON.stringify(priced.lines), priced.subtotal, priced.deliveryFee,
+          priced.discount, coupon ? coupon.code : '', priced.fulfillment, priced.total, now(),
+        );
+        return Number(r.lastInsertRowid);
+      });
+    } catch (err) {
+      return sendError(res, err);
     }
 
-    // Prices always come from the database, never from the browser.
-    const catalog = new Map(services.visibleProducts(merchant).filter((p) => p.available).map((p) => [p.id, p]));
-    const lines = [];
-    for (const [id, qty] of wanted) {
-      const p = catalog.get(id);
-      if (!p) return fail(409, 'فيه منتج في السلة بقى مش متاح. اعمل تحديث للصفحة وجرّب تاني.');
-      if (qty > MAX_QTY) return fail(400, 'فيه منتج في السلة بكمية مش صحيحة.');
-      lines.push({ id: p.id, name: p.name, price: p.price, qty });
-    }
-    const subtotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
-    const deliveryFee = merchant.delivery_fee;
-    const total = subtotal + deliveryFee;
-
-    const r = db.run(
-      `INSERT INTO orders (merchant_id, customer_name, customer_phone, address, notes, items, subtotal, delivery_fee, total, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      merchant.id, name, phone, address, notes, JSON.stringify(lines), subtotal, deliveryFee, total, now(),
-    );
-    const orderId = Number(r.lastInsertRowid);
-
+    const pickup = priced.fulfillment === 'pickup';
     const message = [
       `🛒 *طلب جديد #${orderId}* من ${merchant.store_name}`,
       '',
-      ...lines.map((l) => `• ${l.qty} × ${l.name} = ${formatMoney(l.price * l.qty)}`),
+      ...priced.lines.map((l) => `• ${l.qty} × ${l.name} = ${formatMoney(l.price * l.qty)}`),
       '',
-      `المنتجات: ${formatMoney(subtotal)}`,
-      deliveryFee > 0 ? `التوصيل: ${formatMoney(deliveryFee)}` : null,
-      `*الإجمالي: ${formatMoney(total)}*`,
+      `المنتجات: ${formatMoney(priced.subtotal)}`,
+      priced.discount > 0 ? `الخصم (كوبون ${coupon.code}): -${formatMoney(priced.discount)}` : null,
+      priced.deliveryFee > 0 ? `التوصيل: ${formatMoney(priced.deliveryFee)}` : null,
+      `*الإجمالي: ${formatMoney(priced.total)}*`,
       '',
+      pickup ? '🏪 *استلام من المحل*' : '🚚 *توصيل*',
       `👤 الاسم: ${name}`,
       `📞 الموبايل: ${phone}`,
-      `📍 العنوان: ${address}`,
+      !pickup || address ? `📍 العنوان: ${address}` : null,
       notes ? `📝 ملاحظات: ${notes}` : null,
     ].filter((line) => line !== null).join('\n');
 
     res.status(201).json({
       ok: true,
       orderId,
-      total,
+      total: priced.total,
       whatsappUrl: `https://wa.me/${whatsappNumber(merchant.whatsapp)}?text=${encodeURIComponent(message)}`,
     });
   });

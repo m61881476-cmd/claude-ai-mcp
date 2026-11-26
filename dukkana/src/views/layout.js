@@ -23,7 +23,7 @@ export function page({
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.svg">
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=5">
 ${og
   ? html`<meta property="og:type" content="website">
 <meta property="og:title" content="${og.title}">

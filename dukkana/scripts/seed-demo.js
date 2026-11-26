@@ -12,11 +12,11 @@ const db = openDb(path.join(config.dataDir, 'dukkana.db'));
 
 const DEMO_PHONE = '01000000000';
 const products = [
-  ['كنافة بالمانجا', 14500, 'علبة نص كيلو، كنافة طازة بكريمة ومانجا.', 'حلويات شرقي'],
+  ['كنافة بالمانجا', 14500, 'علبة نص كيلو، كنافة طازة بكريمة ومانجا.', 'حلويات شرقي', 18000],
   ['بسبوسة بالقشطة', 9000, 'صينية صغيرة تكفي 4 أفراد.', 'حلويات شرقي'],
   ['بلح الشام', 6000, 'ربع كيلو.', 'حلويات شرقي'],
   ['أم علي', 4500, 'طبق فردي بالمكسرات.', 'حلويات شرقي'],
-  ['جاتوه شوكولاتة', 32000, 'تورتة 20 سم، لازم تطلبها قبلها بيوم.', 'تورت وكيك'],
+  ['جاتوه شوكولاتة', 32000, 'تورتة 20 سم، لازم تطلبها قبلها بيوم.', 'تورت وكيك', 40000],
   ['كيك فانيليا', 7500, '', 'تورت وكيك'],
   ['تشيز كيك فراولة', 12000, 'قطعة كبيرة.', 'تورت وكيك'],
   ['عصير مانجا فريش', 3500, 'كوباية كبيرة.', 'مشروبات'],
@@ -34,17 +34,27 @@ db.tx(() => {
     id = existing.id;
     db.run('UPDATE merchants SET password_hash = ? WHERE id = ?', hash, id);
     db.run('DELETE FROM products WHERE merchant_id = ?', id);
+    db.run('DELETE FROM coupons WHERE merchant_id = ?', id);
   } else {
     id = Number(db.run(
       `INSERT INTO merchants (phone, password_hash, store_name, slug, whatsapp, description, accent, delivery_fee, plan_expires_at, created_at)
        VALUES (?, ?, ?, 'demo', ?, ?, 'pink', 2500, NULL, ?)`,
       DEMO_PHONE, hash, 'حلويات ست الكل (متجر تجريبي)', DEMO_PHONE,
-      'ده متجر تجريبي عشان تشوف دكّانة شغالة إزاي. جرّب تضيف منتجات للسلة وتكمّل الطلب.', now,
+      'ده متجر تجريبي عشان تشوف دكّانة شغالة إزاي. جرّب تضيف منتجات للسلة، واستخدم كوبون DEMO10 عشان تاخد خصم 10%.', now,
     ).lastInsertRowid);
   }
-  for (const [name, price, description, category] of products) {
-    db.run('INSERT INTO products (merchant_id, name, price, description, category, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, name, price, description, category, now);
+  for (const [name, price, description, category, comparePrice = null] of products) {
+    db.run(
+      'INSERT INTO products (merchant_id, name, price, compare_price, description, category, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, name, price, comparePrice, description, category, now,
+    );
   }
+  // The demo shows every feature: Pro plan, pickup, minimum order and a coupon.
+  db.run(
+    'UPDATE merchants SET plan_expires_at = ?, pickup_enabled = 1, min_order = 5000, is_open = 1 WHERE id = ?',
+    Date.UTC(2100, 0, 1), id,
+  );
+  db.run("INSERT INTO coupons (merchant_id, code, kind, value, created_at) VALUES (?, 'DEMO10', 'percent', 10, ?)", id, now);
 });
 
 console.log('Demo store ready at /s/demo');

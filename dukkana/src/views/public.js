@@ -49,6 +49,8 @@ export function landingPage({ config, refSlug, demoSlug }) {
     <div class="feature"><b>🧮 الحساب مظبوط</b><p>الإجمالي ومصاريف التوصيل بتتحسب أوتوماتيك، فمفيش خناقات على الحساب.</p></div>
     <div class="feature"><b>📋 كل طلباتك في مكان واحد</b><p>كل طلب بيتسجل عندك بالاسم والرقم والعنوان، حتى لو الرسالة ضاعت في الشات.</p></div>
     <div class="feature"><b>📈 بيع أكتر</b><p>الزبون بيشوف كل منتجاتك بالأسعار مرة واحدة بدل ما يسأل "بكام ده؟" ويمشي.</p></div>
+    <div class="feature"><b>🎟️ عروض وكوبونات</b><p>اعمل خصم على منتج بسعر قديم مشطوب، أو كوبون زي EID20 لزباينك.</p></div>
+    <div class="feature"><b>🏪 توصيل أو استلام</b><p>الزبون يختار يستلم من المحل أو يتوصّله، وتقدر تحدد أقل قيمة للطلب.</p></div>
   </div>
 </section>
 
@@ -73,7 +75,9 @@ export function landingPage({ config, refSlug, demoSlug }) {
       <ul>
         <li>منتجات من غير حد</li>
         <li>من غير علامة ${BRAND}</li>
+        <li>كوبونات خصم لزباينك</li>
         <li>إحصائيات المبيعات وأكتر المنتجات طلباً</li>
+        <li>تنزيل الطلبات Excel</li>
         <li>الدفع بفودافون كاش أو إنستاباي</li>
       </ul>
       <a class="btn" href="${signupHref}">جرّبها ${config.trialDays} يوم ببلاش</a>
@@ -152,7 +156,9 @@ export function loginPage({ csrf, values = {}, errors = [], config }) {
 
 function productCard(p, open) {
   const initial = [...p.name][0] || '•';
+  const off = p.compare_price > p.price ? Math.round((1 - p.price / p.compare_price) * 100) : 0;
   return html`<article class="product${p.available ? '' : ' is-out'}" data-id="${p.id}" data-name="${p.name}" data-price="${p.price}">
+  ${off > 0 ? html`<span class="sale-badge">خصم ${off}%</span>` : ''}
   ${p.image
     ? html`<img class="product-img" src="/uploads/${p.image}" alt="${p.name}" loading="lazy">`
     : html`<div class="product-img placeholder" aria-hidden="true">${initial}</div>`}
@@ -160,7 +166,9 @@ function productCard(p, open) {
     <h3>${p.name}</h3>
     ${p.description ? html`<p class="muted small">${p.description}</p>` : ''}
     <div class="product-foot">
-      <span class="price-tag">${formatMoney(p.price)}</span>
+      <span class="price-tag">${formatMoney(p.price)}${p.compare_price > p.price
+        ? html` <s class="old-price">${formatMoney(p.compare_price)}</s>`
+        : ''}</span>
       ${p.available && open
         ? html`<div class="qty" data-qty-for="${p.id}">
             <button type="button" class="qty-btn" data-action="dec" aria-label="شيل واحد">−</button>
@@ -211,7 +219,13 @@ function productsSection(products, open) {
   <p class="empty" id="no-results" hidden>مفيش منتجات بالاسم ده.</p>`;
 }
 
-export function storePage({ merchant, products, showBadge, storeUrl, ogImage }) {
+function socialLinks(m) {
+  const links = [['facebook', 'فيسبوك'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']].filter(([k]) => m[k]);
+  if (links.length === 0) return '';
+  return html`<p class="socials">${links.map(([k, label]) => html`<a href="${m[k]}" target="_blank" rel="noopener nofollow">${label}</a>`)}</p>`;
+}
+
+export function storePage({ merchant, products, showBadge, storeUrl, ogImage, coupons = false }) {
   const initial = [...merchant.store_name][0] || '•';
   return page({
     title: merchant.store_name,
@@ -223,15 +237,20 @@ export function storePage({ merchant, products, showBadge, storeUrl, ogImage }) 
       url: storeUrl,
       image: ogImage,
     },
-    scripts: ['/store.js?v=2'],
-    body: html`<main class="store" data-slug="${merchant.slug}" data-delivery="${merchant.delivery_fee}">
+    scripts: ['/store.js?v=3'],
+    body: html`<main class="store" data-slug="${merchant.slug}" data-delivery="${merchant.delivery_fee}" data-min-order="${merchant.min_order}">
   <header class="store-head"><div class="wrap">
     ${merchant.logo
       ? html`<img class="avatar avatar-img" src="/uploads/${merchant.logo}" alt="">`
       : html`<div class="avatar" aria-hidden="true">${initial}</div>`}
     <h1>${merchant.store_name}</h1>
     ${merchant.description ? html`<p class="store-desc">${merchant.description}</p>` : ''}
-    ${merchant.delivery_fee > 0 ? html`<p class="small">🚚 التوصيل: ${formatMoney(merchant.delivery_fee)}</p>` : ''}
+    <p class="store-facts small">
+      ${merchant.delivery_fee > 0 ? html`<span>🚚 التوصيل: ${formatMoney(merchant.delivery_fee)}</span>` : html`<span>🚚 توصيل</span>`}
+      ${merchant.pickup_enabled ? html`<span>🏪 استلام من المحل</span>` : ''}
+      ${merchant.min_order > 0 ? html`<span>🧾 أقل طلب: ${formatMoney(merchant.min_order)}</span>` : ''}
+    </p>
+    ${socialLinks(merchant)}
   </div></header>
   ${merchant.is_open ? '' : html`<div class="closed-banner">🔒 المحل مقفول دلوقتي ومش بياخد طلبات. تقدر تتفرج على المنتجات وترجع تطلب بعدين.</div>`}
   <div class="wrap">
@@ -249,14 +268,29 @@ export function storePage({ merchant, products, showBadge, storeUrl, ogImage }) 
     <form id="checkout-form" class="form" novalidate>
       <div class="sheet-head"><h2>طلبك</h2><button type="button" class="icon-btn" id="close-checkout" aria-label="اقفل">✕</button></div>
       <ul id="cart-lines" class="cart-lines"></ul>
+      ${merchant.pickup_enabled
+        ? html`<fieldset class="field fulfillment"><legend>إزاي هتستلم؟</legend>
+          <label class="check"><input type="radio" name="fulfillment" value="delivery" checked> 🚚 توصيل${merchant.delivery_fee > 0 ? ` (${formatMoney(merchant.delivery_fee)})` : ''}</label>
+          <label class="check"><input type="radio" name="fulfillment" value="pickup"> 🏪 هستلم من المحل</label>
+        </fieldset>`
+        : ''}
+      ${coupons
+        ? html`<div class="coupon-row">
+          <input name="coupon" id="coupon-input" maxlength="20" placeholder="عندك كوبون خصم؟" autocomplete="off" dir="auto">
+          <button type="button" class="btn btn-small btn-ghost" id="apply-coupon">طبّق</button>
+        </div>
+        <p class="small" id="coupon-status" hidden></p>`
+        : ''}
       <div class="totals">
         <div><span>المنتجات</span><b id="sum-subtotal"></b></div>
-        ${merchant.delivery_fee > 0 ? html`<div><span>التوصيل</span><b>${formatMoney(merchant.delivery_fee)}</b></div>` : ''}
+        <div id="row-discount" hidden><span>الخصم</span><b id="sum-discount"></b></div>
+        <div id="row-delivery"${merchant.delivery_fee > 0 ? '' : html` hidden`}><span>التوصيل</span><b>${formatMoney(merchant.delivery_fee)}</b></div>
         <div class="grand"><span>الإجمالي</span><b id="sum-total"></b></div>
       </div>
+      <p class="alert alert-error" id="min-order-note" hidden></p>
       <label class="field"><span>اسمك</span><input name="name" required maxlength="60" autocomplete="name"></label>
       <label class="field"><span>رقم موبايلك</span><input name="phone" type="tel" inputmode="tel" required dir="ltr" placeholder="01xxxxxxxxx" autocomplete="tel"></label>
-      <label class="field"><span>العنوان</span><textarea name="address" required maxlength="300" rows="2" autocomplete="street-address"></textarea></label>
+      <label class="field" id="address-field"><span>العنوان</span><textarea name="address" required maxlength="300" rows="2" autocomplete="street-address"></textarea></label>
       <label class="field"><span>ملاحظات (اختياري)</span><textarea name="notes" maxlength="500" rows="2"></textarea></label>
       <p class="alert alert-error" id="checkout-error" hidden></p>
       <button class="btn btn-block btn-whatsapp" type="submit" id="submit-order">ابعت الطلب على واتساب</button>

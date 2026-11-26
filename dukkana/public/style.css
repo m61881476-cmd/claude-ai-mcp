@@ -112,7 +112,7 @@ code { background: #f3f4f6; padding: 0 .3em; border-radius: 4px; }
 .card.highlight { border: 2px dashed var(--accent); }
 .form .field { display: block; margin-bottom: 14px; border: 0; padding: 0; }
 .field > span, .field legend { display: block; font-weight: 600; margin-bottom: 4px; }
-input[type=text], input[type=tel], input[type=password], input:not([type]), textarea, select {
+input[type=text], input[type=tel], input[type=password], input[type=search], input[type=date], input:not([type]), textarea, select {
   width: 100%; font: inherit; padding: .65em .8em; border: 1px solid #d1d5db; border-radius: 10px; background: #fff; color: var(--ink);
 }
 input:focus, textarea:focus { outline: 3px solid var(--accent-soft); border-color: var(--accent); }
@@ -225,3 +225,18 @@ input[type=file] { font: inherit; max-width: 100%; }
 .store-toggle { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .store-toggle.is-closed { border: 2px solid #fcd34d; background: #fffbeb; }
 .logo-preview { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+
+/* v3: offers, coupons, pickup, socials */
+.product { position: relative; }
+.sale-badge { position: absolute; top: 10px; inset-inline-start: 10px; background: #dc2626; color: #fff; font-size: .75rem; font-weight: 800; padding: 2px 10px; border-radius: 999px; z-index: 1; }
+.old-price { color: var(--muted); font-weight: 400; font-size: .85em; }
+.store-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin: 8px 0 0; }
+.socials { display: flex; gap: 10px; justify-content: center; margin: 8px 0 0; }
+.socials a { color: #fff; background: rgba(255, 255, 255, .18); padding: 2px 12px; border-radius: 999px; text-decoration: none; font-size: .85rem; }
+.coupon-row { display: flex; gap: 8px; margin: 10px 0 4px; }
+.coupon-row input { flex: 1; min-width: 0; }
+.coupon-ok { color: #166534; font-weight: 600; margin: 0 0 8px; }
+.coupon-bad { color: #991b1b; margin: 0 0 8px; }
+.fulfillment { margin: 8px 0; }
+.mt { margin-top: 8px; }
+#row-discount b { color: #166534; }

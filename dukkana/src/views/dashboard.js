@@ -11,6 +11,7 @@ export const FLASH = {
   payment: 'طلب الدفع وصلنا. هنراجعه ونفعّل الباقة في أقرب وقت (عادةً في نفس اليوم).',
   status: 'حالة الطلب اتغيرت.',
   opened: 'المتجر اتفتح، والزباين يقدروا يطلبوا دلوقتي.',
+  coupon: 'الكوبون اتعمل. ابعت الكود لزباينك!',
   closed: 'المتجر اتقفل مؤقتاً. الزباين يقدروا يتفرجوا بس ومش هيقدروا يطلبوا.',
 };
 
@@ -21,6 +22,7 @@ function dashHeader({ csrf, active }) {
     ['/dashboard', 'home', 'الرئيسية'],
     ['/dashboard/products', 'products', 'المنتجات'],
     ['/dashboard/orders', 'orders', 'الطلبات'],
+    ['/dashboard/coupons', 'coupons', 'الكوبونات'],
     ['/dashboard/settings', 'settings', 'الإعدادات'],
     ['/dashboard/billing', 'billing', 'الاشتراك'],
   ];
@@ -103,9 +105,10 @@ function orderTable(orders, csrf) {
     return html`<article class="order order-${o.status}">
   <header><b>#${o.id}</b> · ${formatDateTime(o.created_at)} <span class="badge badge-${o.status}">${ORDER_STATUS[o.status] || o.status}</span></header>
   <p><b>${o.customer_name}</b> · <a href="tel:${o.customer_phone}" dir="ltr">${o.customer_phone}</a></p>
-  <p class="muted small">${o.address}</p>
+  <p class="muted small">${o.fulfillment === 'pickup' ? '🏪 استلام من المحل' : '🚚 توصيل'}${o.address ? html` · ${o.address}` : ''}</p>
   <ul class="small">${items.map((it) => html`<li>${it.qty} × ${it.name} (${formatMoney(it.price * it.qty)})</li>`)}</ul>
   ${o.notes ? html`<p class="small">📝 ${o.notes}</p>` : ''}
+  ${o.discount ? html`<p class="small">🎟️ خصم ${formatMoney(o.discount)} (كوبون ${o.coupon_code})</p>` : ''}
   <p><b>الإجمالي: ${formatMoney(o.total)}</b>${o.delivery_fee ? html` <span class="muted small">(شامل توصيل ${formatMoney(o.delivery_fee)})</span>` : ''}</p>
   <form method="post" action="/dashboard/orders/${o.id}/status" class="row-actions">
     ${csrfField(csrf)}
@@ -117,14 +120,17 @@ function orderTable(orders, csrf) {
   })}</div>`;
 }
 
-export function ordersPage({ csrf, orders, msg, filter }) {
+export function ordersPage({ csrf, orders, msg, filter, pro = false }) {
   const tabs = [['all', 'الكل'], ['new', 'جديد'], ['done', 'اتسلّم'], ['cancelled', 'اتلغى']];
   return dashPage({
     title: 'الطلبات',
     csrf,
     active: 'orders',
     body: html`${notice(FLASH[msg])}
-<h1>الطلبات</h1>
+<div class="title-row"><h1>الطلبات</h1>
+${pro
+  ? html`<a class="btn btn-small btn-ghost" href="/dashboard/orders.csv">⬇️ نزّل الطلبات Excel</a>`
+  : html`<a class="small" href="/dashboard/billing">🔒 تنزيل الطلبات Excel في الاحترافية</a>`}</div>
 <nav class="tabs">${tabs.map(([k, label]) => html`<a href="/dashboard/orders?status=${k}" class="${filter === k ? 'active' : ''}">${label}</a>`)}</nav>
 ${orders.length ? orderTable(orders, csrf) : html`<p class="muted">مفيش طلبات هنا.</p>`}
 ${orders.length === 200 ? html`<p class="muted small">بيظهر آخر 200 طلب بس.</p>` : ''}`,
@@ -168,6 +174,7 @@ export function productFormPage({ csrf, product = null, values = {}, errors = []
     price: values.price ?? (product ? priceInputValue(product.price) : ''),
     description: values.description ?? product?.description ?? '',
     category: values.category ?? product?.category ?? '',
+    compare_price: values.compare_price ?? (product?.compare_price ? priceInputValue(product.compare_price) : ''),
   };
   const action = editing ? `/dashboard/products/${product.id}/edit` : '/dashboard/products/new';
   return dashPage({
@@ -180,6 +187,8 @@ ${errorBox(errors)}
   ${csrfField(csrf)}
   <label class="field"><span>اسم المنتج</span><input name="name" required maxlength="80" value="${v.name}"></label>
   <label class="field"><span>السعر (بالجنيه)</span><input name="price" required inputmode="decimal" value="${v.price}" placeholder="مثلاً 120" dir="ltr"></label>
+  <label class="field"><span>السعر قبل الخصم (اختياري)</span><input name="compare_price" inputmode="decimal" value="${v.compare_price}" placeholder="لو عامل عرض، اكتب السعر القديم" dir="ltr">
+    <small class="muted">هيظهر مشطوب جنب السعر الجديد، ومعاه نسبة الخصم.</small></label>
   <label class="field"><span>القسم (اختياري)</span><input name="category" maxlength="40" value="${v.category}" list="category-list" placeholder="مثلاً: حلويات شرقي، مشروبات، عروض">
     <small class="muted">المنتجات اللي ليها نفس القسم بتظهر مع بعض في المتجر.</small></label>
   <datalist id="category-list">${categories.map((c) => html`<option value="${c}"></option>`)}</datalist>
@@ -203,6 +212,11 @@ export function settingsPage({ csrf, merchant, values = {}, errors = [], msg }) 
     description: values.description ?? merchant.description,
     accent: values.accent ?? merchant.accent,
     delivery_fee: values.delivery_fee ?? priceInputValue(merchant.delivery_fee),
+    min_order: values.min_order ?? priceInputValue(merchant.min_order),
+    pickup_enabled: values.pickup_enabled ?? Boolean(merchant.pickup_enabled),
+    facebook: values.facebook ?? merchant.facebook,
+    instagram: values.instagram ?? merchant.instagram,
+    tiktok: values.tiktok ?? merchant.tiktok,
   };
   return dashPage({
     title: 'الإعدادات',
@@ -219,6 +233,13 @@ ${errorBox(errors)}
   <label class="field"><span>رقم الواتساب اللي بتوصلك عليه الطلبات</span><input name="whatsapp" type="tel" required value="${v.whatsapp}" dir="ltr"></label>
   <label class="field"><span>وصف المتجر (اختياري)</span><textarea name="description" maxlength="300" rows="3" placeholder="مثلاً: أحلى حلويات بيتي في مدينة نصر، التوصيل لحد باب البيت">${v.description}</textarea></label>
   <label class="field"><span>مصاريف التوصيل (بالجنيه، 0 لو مفيش)</span><input name="delivery_fee" inputmode="decimal" value="${v.delivery_fee}" dir="ltr"></label>
+  <label class="field"><span>أقل قيمة للطلب (بالجنيه، 0 لو مفيش)</span><input name="min_order" inputmode="decimal" value="${v.min_order}" dir="ltr"></label>
+  <label class="check"><input type="checkbox" name="pickup_enabled" value="1" ${v.pickup_enabled ? html`checked` : ''}> الزبون يقدر يختار "استلام من المحل" (من غير مصاريف توصيل)</label>
+  <fieldset class="field"><legend>صفحاتك على السوشيال ميديا (اختياري)</legend>
+    <input name="facebook" value="${v.facebook}" placeholder="لينك صفحة فيسبوك" dir="ltr">
+    <input name="instagram" value="${v.instagram}" placeholder="لينك إنستجرام" dir="ltr" class="mt">
+    <input name="tiktok" value="${v.tiktok}" placeholder="لينك تيك توك" dir="ltr" class="mt">
+  </fieldset>
   <fieldset class="field"><legend>لون المتجر</legend><div class="swatches">
     ${Object.entries(ACCENTS).map(([key, label]) => html`<label class="swatch accent-${key}"><input type="radio" name="accent" value="${key}" ${v.accent === key ? html`checked` : ''}><span>${label}</span></label>`)}
   </div></fieldset>
@@ -305,6 +326,52 @@ ${payments.length
   ? html`<section class="card"><h2>سجل المدفوعات</h2><table class="table"><thead><tr><th>التاريخ</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th></tr></thead><tbody>
     ${payments.map((p) => html`<tr><td>${formatDate(p.created_at)}</td><td>${p.plan === 'yearly' ? 'سنوي' : 'شهري'}</td><td>${formatMoney(p.amount)}</td><td>${PAY_STATUS[p.status] || p.status}</td></tr>`)}
   </tbody></table></section>`
+  : ''}`,
+  });
+}
+
+export function couponsPage({ csrf, coupons, pro, now, msg, errors = [], values = {}, config }) {
+  const status = (c) => {
+    if (!c.active) return html`<span class="badge">موقوف</span>`;
+    if (c.expires_at != null && c.expires_at <= now) return html`<span class="badge badge-cancelled">انتهى</span>`;
+    if (c.max_uses != null && c.uses >= c.max_uses) return html`<span class="badge badge-cancelled">خلص</span>`;
+    return html`<span class="badge badge-new">شغال</span>`;
+  };
+  return dashPage({
+    title: 'الكوبونات',
+    csrf,
+    active: 'coupons',
+    body: html`${notice(FLASH[msg])}
+<h1>كوبونات الخصم</h1>
+<p class="muted">اعمل كود خصم (مثلاً RAMADAN أو عيد20) وانشره على صفحتك. الزبون يكتبه وهو بيطلب، والخصم يتحسب لوحده.</p>
+${!pro
+  ? html`<div class="plan-banner">🔒 الكوبونات متاحة في الباقة الاحترافية بس (${config.priceMonthly} ج.م/شهر). <a href="/dashboard/billing">اشترك</a></div>`
+  : html`${errorBox(errors)}
+<form method="post" action="/dashboard/coupons" class="card form">
+  ${csrfField(csrf)}
+  <h2>كوبون جديد</h2>
+  <label class="field"><span>الكود</span><input name="code" required maxlength="20" value="${values.code || ''}" placeholder="مثلاً EID20" dir="auto" autocapitalize="characters"></label>
+  <fieldset class="field"><legend>نوع الخصم</legend>
+    <label class="check"><input type="radio" name="kind" value="percent" ${values.kind !== 'fixed' ? html`checked` : ''}> نسبة مئوية (%)</label>
+    <label class="check"><input type="radio" name="kind" value="fixed" ${values.kind === 'fixed' ? html`checked` : ''}> مبلغ ثابت (جنيه)</label>
+  </fieldset>
+  <label class="field"><span>قيمة الخصم</span><input name="value" required inputmode="decimal" value="${values.value || ''}" placeholder="مثلاً 10" dir="ltr"></label>
+  <label class="field"><span>أقل قيمة طلب عشان الكوبون يشتغل (اختياري)</span><input name="min_subtotal" inputmode="decimal" value="${values.min_subtotal || ''}" dir="ltr"></label>
+  <label class="field"><span>أقصى عدد مرات استخدام (اختياري)</span><input name="max_uses" inputmode="numeric" value="${values.max_uses || ''}" dir="ltr"></label>
+  <label class="field"><span>آخر يوم للكوبون (اختياري)</span><input name="expires" type="date" value="${values.expires || ''}" dir="ltr"></label>
+  <button class="btn btn-block" type="submit">اعمل الكوبون</button>
+</form>`}
+${coupons.length
+  ? html`<section class="card"><h2>الكوبونات بتاعتك</h2><div class="plist">${coupons.map((c) => html`<div class="pitem">
+    <div class="pitem-body"><b dir="auto">${c.code}</b>
+      <span>${c.kind === 'percent' ? `خصم ${c.value}%` : `خصم ${formatMoney(c.value)}`}${c.min_subtotal ? ` · على طلبات من ${formatMoney(c.min_subtotal)}` : ''}</span>
+      <span>اتستخدم ${c.uses}${c.max_uses != null ? ` من ${c.max_uses}` : ''} مرة${c.expires_at != null ? ` · لحد ${formatDate(c.expires_at - 1)}` : ''}</span>
+    </div>
+    ${status(c)}
+    <div class="pitem-actions">
+      <form method="post" action="/dashboard/coupons/${c.id}/toggle" class="inline">${csrfField(csrf)}<button class="btn btn-small btn-ghost">${c.active ? 'وقّفه' : 'شغّله'}</button></form>
+      <form method="post" action="/dashboard/coupons/${c.id}/delete" class="inline" data-confirm="تمسح الكوبون ده؟">${csrfField(csrf)}<button class="btn btn-small btn-danger">امسح</button></form>
+    </div></div>`)}</div></section>`
   : ''}`,
   });
 }
